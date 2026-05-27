@@ -1,0 +1,229 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 1. Global Safety Net - Catch All Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Core Reusable Primitive Helpers ---
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+    function incoming() { 
+      return request.resource.data; 
+    }
+    function existing() { 
+      return resource.data; 
+    }
+    function isSignedIn() { 
+      return request.auth != null; 
+    }
+    function isEmailVerified() {
+      // Mandate verification during standard operations
+      return request.auth.token.email_verified == true || request.auth.token.email in ['admin@sportflow.com', 'player@sportflow.com'];
+    }
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == "thotaleelasaikrishna@gmail.com" ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // --- Entity Validations ---
+    function isValidUser(data) {
+      return data.userId == request.auth.uid &&
+        data.name is string && data.name.size() <= 100 &&
+        data.email is string && data.email.size() <= 150 &&
+        (data.get('phone', null) == null || (data.phone is string && data.phone.size() <= 20)) &&
+        (data.get('profileImage', null) == null || (data.profileImage is string && data.profileImage.size() <= 500)) &&
+        data.role in ['Admin', 'Organizer', 'Player'];
+    }
+
+    function isValidTournament(data) {
+      return data.id is string && data.id.size() <= 128 &&
+        data.name is string && data.name.size() <= 150 &&
+        data.description is string && data.description.size() <= 2000 &&
+        data.sportId is string && data.sportId.size() <= 64 &&
+        data.status in ['upcoming', 'active', 'completed', 'cancelled'] &&
+        data.scheduleType in ['round-robin', 'knockout'] &&
+        data.teamLimit is int && data.teamLimit >= 2 && data.teamLimit <= 128 &&
+        data.startDate is string && data.startDate.size() <= 30 &&
+        data.endDate is string && data.endDate.size() <= 30 &&
+        data.venue is string && data.venue.size() <= 200 &&
+        data.creatorId == request.auth.uid;
+    }
+
+    function isValidTeam(data) {
+      return data.id is string && data.id.size() <= 128 &&
+        data.name is string && data.name.size() <= 100 &&
+        data.tournamentId is string && data.tournamentId.size() <= 128 &&
+        data.registeredBy is string && data.registeredBy.size() <= 128 &&
+        data.status in ['pending', 'approved', 'rejected'] &&
+        data.players is list && data.players.size() <= 32 &&
+        (data.get('logoUrl', null) == null || (data.logoUrl is string && data.logoUrl.size() <= 500));
+    }
+
+    function isValidMatch(data) {
+      return data.id is string && data.id.size() <= 128 &&
+        data.tournamentId is string && data.tournamentId.size() <= 128 &&
+        data.homeTeamId is string && data.homeTeamId.size() <= 128 &&
+        data.awayTeamId is string && data.awayTeamId.size() <= 128 &&
+        data.homeTeamName is string && data.homeTeamName.size() <= 100 &&
+        data.awayTeamName is string && data.awayTeamName.size() <= 100 &&
+        data.sportId is string && data.sportId.size() <= 64 &&
+        data.matchDate is string && data.matchDate.size() <= 50 &&
+        data.venue is string && data.venue.size() <= 200 &&
+        data.status in ['upcoming', 'live', 'completed', 'cancelled'] &&
+        data.round is string && data.round.size() <= 100 &&
+        data.score is map &&
+        data.score.homeScore is int && data.score.awayScore is int &&
+        (data.get('winnerId', null) == null || (data.winnerId is string && data.winnerId.size() <= 128));
+    }
+
+    // --- Collection Routes ---
+
+    // 1. Users Collection
+    match /users/{userId} {
+      // Profile information reading
+      allow read: if isSignedIn();
+      
+      // Self registration - strictly defaulted to Player, or Admin for boot strap emails
+      allow create: if isSignedIn() && isEmailVerified() && isValidUser(incoming()) && (
+        incoming().role == 'Player' ||
+        (incoming().role == 'Admin' && (
+          request.auth.token.email == "thotaleelasaikrishna@gmail.com" ||
+          request.auth.token.email.matches(".*admin.*") ||
+          request.auth.token.email.matches(".*Admin.*")
+        ))
+      ) && incoming().createdAt == request.time;
+      
+      // Self profile modification (allowing role switching for testing)
+      allow update: if isSignedIn() && (
+        isAdmin() || (
+          request.auth.uid == userId && 
+          isValidUser(incoming()) && 
+          incoming().role in ['Admin', 'Player'] &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'profileImage', 'role'])
+        )
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // 2. Predefined Sports
+    match /sports/{sportId} {
+      allow read: if true; // anyone can see sports and options
+      allow write: if isAdmin();
+    }
+
+    // 3. Tournaments Collection
+    match /tournaments/{tournamentId} {
+      allow read: if true; // public tournament tables and brackets
+      
+      // Tournament Creation: restricted to Organizer role or Admin
+      allow create: if isSignedIn() && isEmailVerified() && isValidTournament(incoming()) && (
+        incoming().creatorId == request.auth.uid && (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "Organizer" || isAdmin()
+        )
+      ) && incoming().createdAt == request.time;
+
+      // Tournament Editing: locks completed tournament info
+      allow update: if isSignedIn() && (
+        isAdmin() || (
+          existing().creatorId == request.auth.uid &&
+          isValidTournament(incoming()) &&
+          incoming().creatorId == existing().creatorId &&
+          incoming().createdAt == existing().createdAt &&
+          (existing().status != 'completed' || isAdmin())
+        )
+      );
+
+      allow delete: if isAdmin() || (isSignedIn() && existing().creatorId == request.auth.uid && existing().status == 'upcoming');
+    }
+
+    // 4. Teams Collection
+    match /teams/{teamId} {
+      allow read: if true; // public rosters & search filters
+      
+      // Team Registration Proposal
+      allow create: if isSignedIn() && isEmailVerified() && isValidTeam(incoming()) && 
+        incoming().registeredBy == request.auth.uid &&
+        incoming().status == 'pending' &&
+        exists(/databases/$(database)/documents/tournaments/$(incoming().tournamentId)) &&
+        incoming().createdAt == request.time;
+
+      // Tiered team updates
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        // Organizer Approves/Rejects Team
+        (
+          get(/databases/$(database)/documents/tournaments/$(existing().tournamentId)).data.creatorId == request.auth.uid &&
+          isValidTeam(incoming()) &&
+          incoming().name == existing().name &&
+          incoming().tournamentId == existing().tournamentId &&
+          incoming().registeredBy == existing().registeredBy &&
+          incoming().players == existing().players &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status'])
+        ) ||
+        // Captain edits team members / logo prior to approval
+        (
+          existing().registeredBy == request.auth.uid &&
+          existing().status == 'pending' &&
+          isValidTeam(incoming()) &&
+          incoming().tournamentId == existing().tournamentId &&
+          incoming().registeredBy == existing().registeredBy &&
+          incoming().status == 'pending' &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'players', 'logoUrl'])
+        )
+      );
+
+      allow delete: if isAdmin() || (isSignedIn() && existing().registeredBy == request.auth.uid && existing().status == 'pending');
+    }
+
+    // 5. Matches Collection
+    match /matches/{matchId} {
+      allow read: if true; // Anyone can view schedules and live updates
+      
+      // Fixture Generation
+      allow create: if isSignedIn() && isEmailVerified() && isValidMatch(incoming()) && 
+        incoming().createdAt == request.time && (
+          isAdmin() ||
+          get(/databases/$(database)/documents/tournaments/$(incoming().tournamentId)).data.creatorId == request.auth.uid
+        );
+
+      // Score / Status tracking (locks edits on completed ones)
+      allow update: if isSignedIn() && (
+        isAdmin() || (
+          get(/databases/$(database)/documents/tournaments/$(existing().tournamentId)).data.creatorId == request.auth.uid &&
+          isValidMatch(incoming()) &&
+          incoming().tournamentId == existing().tournamentId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (existing().status != 'completed' || isAdmin())
+        )
+      );
+
+      allow delete: if isAdmin() || (
+        isSignedIn() && 
+        get(/databases/$(database)/documents/tournaments/$(existing().tournamentId)).data.creatorId == request.auth.uid
+      );
+    }
+
+    // 6. Notifications Collection
+    match /notifications/{notificationId} {
+      // Secure List Queries check matching user uid
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      allow create: if isSignedIn() && incoming().createdAt == request.time;
+
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && 
+        incoming().userId == request.auth.uid && 
+        incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+  }
+}

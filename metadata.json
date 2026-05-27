@@ -1,0 +1,6 @@
+{
+  "name": "Sports Scheduler & Tournament Management",
+  "description": "A complete, modern sports tournament brackets compiler with automated matches generators, registration dashboards, and live scoreboard managers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

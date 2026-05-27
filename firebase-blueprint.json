@@ -1,0 +1,132 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents a user profile in the sports management system.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Unique identifier matching the Firebase Auth UID" },
+        "name": { "type": "string", "description": "Full name of the user" },
+        "email": { "type": "string", "description": "Email address of the user" },
+        "phone": { "type": "string", "description": "Phone number, optional" },
+        "profileImage": { "type": "string", "description": "URL to profile picture" },
+        "role": { "type": "string", "enum": ["Admin", "Organizer", "Player"], "description": "Role of the user in the system" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["userId", "name", "email", "role", "createdAt"]
+    },
+    "Sport": {
+      "title": "Sport",
+      "description": "Athletic category like football, basketball, etc.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier (e.g. cricket, football)" },
+        "name": { "type": "string", "description": "Readable name of the sport" },
+        "description": { "type": "string", "description": "Description of rules or features" },
+        "icon": { "type": "string", "description": "Lucide icon name" },
+        "image": { "type": "string", "description": "Promotional category image URL" },
+        "teamSize": { "type": "integer", "description": "Ideal players count per team" }
+      },
+      "required": ["id", "name", "description", "icon", "image", "teamSize"]
+    },
+    "Tournament": {
+      "title": "Tournament",
+      "description": "A sports bracket or league tournament created by an organizer.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of the tournament" },
+        "name": { "type": "string", "description": "Name of the tournament" },
+        "description": { "type": "string", "description": "Detailed rules and timeline" },
+        "sportId": { "type": "string", "description": "Reference to a sport entity" },
+        "status": { "type": "string", "enum": ["upcoming", "active", "completed", "cancelled"], "description": "Current status" },
+        "scheduleType": { "type": "string", "enum": ["round-robin", "knockout"], "description": "Format of matches generation" },
+        "teamLimit": { "type": "integer", "description": "Maximum number of teams" },
+        "startDate": { "type": "string", "format": "date", "description": "Tournament start date" },
+        "endDate": { "type": "string", "format": "date", "description": "Tournament end date" },
+        "venue": { "type": "string", "description": "Physical facility / court name" },
+        "creatorId": { "type": "string", "description": "User ID of the organizer who created it" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Created date" }
+      },
+      "required": ["id", "name", "description", "sportId", "status", "scheduleType", "teamLimit", "startDate", "endDate", "venue", "creatorId", "createdAt"]
+    },
+    "Team": {
+      "title": "Team",
+      "description": "A registered team competing in a specific tournament.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of the team" },
+        "name": { "type": "string", "description": "Name of the team" },
+        "tournamentId": { "type": "string", "description": "Reference to the tournament" },
+        "registeredBy": { "type": "string", "description": "User ID of creator/captain" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"], "description": "Approval state from organizer" },
+        "players": { "type": "array", "description": "List of player names or contact info" },
+        "logoUrl": { "type": "string", "description": "Team logo URL" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Time of registration request" }
+      },
+      "required": ["id", "name", "tournamentId", "registeredBy", "status", "players", "createdAt"]
+    },
+    "Match": {
+      "title": "Match",
+      "description": "A scheduled athletic match between two approved teams.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of the match" },
+        "tournamentId": { "type": "string", "description": "Tournament reference ID" },
+        "homeTeamId": { "type": "string", "description": "Home team ID, or placeholder if unresolved TBD" },
+        "awayTeamId": { "type": "string", "description": "Away team ID, or placeholder if unresolved TBD" },
+        "homeTeamName": { "type": "string", "description": "Name of home team" },
+        "awayTeamName": { "type": "string", "description": "Name of away team" },
+        "sportId": { "type": "string", "description": "Reference to sport category" },
+        "matchDate": { "type": "string", "format": "date-time", "description": "Time of physical event" },
+        "venue": { "type": "string", "description": "Specific sub-court/venue" },
+        "status": { "type": "string", "enum": ["upcoming", "live", "completed", "cancelled"], "description": "State" },
+        "round": { "type": "string", "description": "e.g., Round of 16, Semifinals, Round 1" },
+        "score": { "type": "object", "description": "Tracks { homeScore, awayScore }" },
+        "winnerId": { "type": "string", "description": "ID of winner team, empty if draw or unsettled" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last updated date-time" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Generated date-time" }
+      },
+      "required": ["id", "tournamentId", "homeTeamId", "awayTeamId", "homeTeamName", "awayTeamName", "sportId", "matchDate", "venue", "status", "score", "updatedAt", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Real-time user alerts and standings digests.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Notification ID" },
+        "userId": { "type": "string", "description": "Recipient user profile ID" },
+        "title": { "type": "string", "description": "Short alert title" },
+        "message": { "type": "string", "description": "Content of the alert" },
+        "read": { "type": "boolean", "description": "Unread indicator" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Alert timestamp" }
+      },
+      "required": ["id", "userId", "title", "message", "read", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles managed via registration context."
+    },
+    "/sports/{sportId}": {
+      "schema": "Sport",
+      "description": "Dynamic or system predefined sports databases."
+    },
+    "/tournaments/{tournamentId}": {
+      "schema": "Tournament",
+      "description": "Main tournament events managed by organizers."
+    },
+    "/teams/{teamId}": {
+      "schema": "Team",
+      "description": "Registered and proposed teams for various leagues."
+    },
+    "/matches/{matchId}": {
+      "schema": "Match",
+      "description": "Generated dynamic fixtures matching schedule conditions"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Alert signals for organizers, players, and match outcomes."
+    }
+  }
+}
